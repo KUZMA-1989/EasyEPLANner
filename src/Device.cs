@@ -1,20 +1,10 @@
-﻿///@file Device.cs
-///@brief Классы, реализующие минимальную функциональность, необходимую для 
-///экспорта описания устройств для PAC.
-///
-/// @author  Иванюк Дмитрий Сергеевич.
-///
-/// @par Текущая версия:
-/// @$Rev: --- $.\n
-/// @$Author: sedr $.\n
-/// @$Date:: 2019-10-21#$.
-
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System;
 using System.Windows.Forms;
 using IO;
 using System.Linq;
+using StaticHelper;
 
 /// <summary>
 /// Пространство имен технологических устройств проекта (клапана, насосы...).
@@ -84,6 +74,8 @@ namespace Device
         LS_IOLINK_MIN,  ///< IO-Link уровень. Подключение по схеме минимум.
         LS_IOLINK_MAX,  ///< IO-Link уровень. Подключение по схеме максимум.
 
+        LS_VIRT,        ///< Виртуальный датчик уровня.
+
         //M,  
         M = 1,          ///< Мотор без управления частотой вращения.
         M_FREQ,         ///< Мотор с управлением частотой вращения.
@@ -138,6 +130,8 @@ namespace Device
 
         LT_IOLINK,      ///< IO-Link текущий уровень без дополнительных параметров.
 
+        LT_VIRT,        ///< Виртуальный текущий уровень.
+
         //Y
         Y = 1,          /// Обычный пневмоостров Festo
         DEV_VTUG_8,     /// Festo подтип DEV_VTUG_8
@@ -150,7 +144,8 @@ namespace Device
 
         //PT
         PT = 1,         ///< Датчик давления
-        PT_IOLINK       ///< IOLink датчик давления
+        PT_IOLINK,      ///< IO-Link датчик давления
+        DEV_SPAE        ///< IO-Link датчик давления воздуха    
     };
 
     /// <summary>
@@ -522,6 +517,8 @@ namespace Device
                             return "LS_IOLINK_MIN";
                         case DeviceSubType.LS_IOLINK_MAX:
                             return "LS_IOLINK_MAX";
+                        case DeviceSubType.LS_VIRT:
+                            return "LS_VIRT";
                     }
                     break;
 
@@ -580,6 +577,8 @@ namespace Device
                             return "LT_CYL";
                         case DeviceSubType.LT_TRUNC:
                             return "LT_TRUNC";
+                        case DeviceSubType.LT_VIRT:
+                            return "LT_VIRT";
                     }
                     break;
 
@@ -620,6 +619,9 @@ namespace Device
 
                         case DeviceSubType.PT_IOLINK:
                             return "PT_IOLINK";
+
+                        case DeviceSubType.DEV_SPAE:
+                            return "DEV_SPAE";
                     }
                     break;
 
@@ -759,6 +761,9 @@ namespace Device
                             return new List<string>(new string[] { "ST", "M", "V", "P_MIN_V", "P_MAX_V", "P_CZ" });
 
                         case DeviceSubType.PT_IOLINK:
+                            return new List<string>(new string[] { "M", "V" });
+
+                        case DeviceSubType.DEV_SPAE:
                             return new List<string>(new string[] { "M", "V" });
                     }
                     break;
@@ -902,73 +907,30 @@ namespace Device
             }
             else
             {
-                return string.Empty; 
+                return ""; 
             }
         }
 
         /// <summary>
         /// Сброс канала ввода\вывода.
         /// </summary>
-        /// <param name="addressSpace">Тип адресного пространства канала.</param>   
-        /// <param name="komment">Комментарий к каналу.</param>
-        /// <param name="error">Строка с описанием ошибки при возникновении таковой.</param>
+        /// <param name="addressSpace">Тип адресного пространства канала.
+        /// </param>   
+        /// <param name="comment">Комментарий к каналу.</param>
+        /// <param name="error">Строка с описанием ошибки при возникновении 
+        /// таковой.</param>
         public bool ClearChannel(
             IOModuleInfo.ADDRESS_SPACE_TYPE addressSpace,
-            string komment)
+            string comment, string channelName)
         {
-            List<IOChannel> IO = null;
+            List<IOChannel> findedChannels = GetChannels(addressSpace, 
+                channelName, comment);
 
-            switch (addressSpace)
+            if (findedChannels.Count > 0)
             {
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.DO:
-                    IO = DO;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.DI:
-                    IO = DI;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.AO:
-                    IO = AO;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.AI:
-                    IO = AI;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.AOAI:
-                    IO = AO;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.DODI:
-                    IO = DO;
-                    break;
-            }
-
-            List<IOChannel> resCh = IO.FindAll(delegate (IOChannel ch)
-            {
-                return ch.komment == komment;
-            });
-            if (addressSpace == IOModuleInfo.ADDRESS_SPACE_TYPE.AOAI)
-            {
-                resCh.AddRange(AI.FindAll(delegate (IOChannel ch)
+                foreach (IOChannel channel in findedChannels)
                 {
-                    return ch.komment == komment;
-                }));
-            }
-            if (addressSpace == IOModuleInfo.ADDRESS_SPACE_TYPE.DODI)
-            {
-                resCh.AddRange(DI.FindAll(delegate (IOChannel ch)
-                {
-                    return ch.komment == komment;
-                }));
-            }
-
-            if (resCh.Count > 0)
-            {
-                foreach (IOChannel ch in resCh)
-                {
-                    ch.Clear();
+                    channel.Clear();
                 }
                 return true;
             }
@@ -981,95 +943,130 @@ namespace Device
         /// <summary>
         /// Установка канала ввода\вывода.
         /// </summary>
-        /// <param name="addressSpace">Тип адресного пространства канала.</param>
+        /// <param name="addressSpace">Тип адресного пространства канала.
+        /// </param>
         /// <param name="node">Номер узла.</param>
         /// <param name="module">Номер модуля.</param>
         /// <param name="physicalKlemme">Номер клеммы.</param>
-        /// <param name="komment">Комментарий к каналу.</param>
-        /// <param name="error">Строка с описанием ошибки при возникновении таковой.</param>
+        /// <param name="comment">Комментарий к каналу.</param>
+        /// <param name="error">Строка с описанием ошибки при возникновении 
+        /// таковой.</param>
         public bool SetChannel(IOModuleInfo.ADDRESS_SPACE_TYPE addressSpace,
-            int node, int module, int physicalKlemme, string komment, out string error,
-            int fullModule, int logicalPort, int moduleOffset)
+            int node, int module, int physicalKlemme, string comment, 
+            out string error, int fullModule, int logicalPort, 
+            int moduleOffset, string channelName)
         {
             error = "";
-            List<IOChannel> IO = null;
 
-            switch (addressSpace)
+            List<IOChannel> findedChannels = GetChannels(addressSpace, 
+                channelName, comment);
+
+            if (findedChannels.Count > 0)
             {
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.DO:
-                    IO = DO;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.DI:
-                    IO = DI;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.AO:
-                    IO = AO;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.AI:
-                    IO = AI;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.AOAI:
-                    IO = AO;
-                    break;
-
-                case IOModuleInfo.ADDRESS_SPACE_TYPE.DODI:
-                    IO = DO;
-                    break;
-            }
-
-            List<IOChannel> resCh = IO.FindAll(delegate (IOChannel ch)
-            {
-                return ch.komment == komment;
-            });
-            if (addressSpace == IOModuleInfo.ADDRESS_SPACE_TYPE.AOAI)
-            {
-                resCh.AddRange(AI.FindAll(delegate (IOChannel ch)
+                foreach (IOChannel channel in findedChannels)
                 {
-                    return ch.komment == komment;
-                }));
-            }
-            if (addressSpace == IOModuleInfo.ADDRESS_SPACE_TYPE.DODI)
-            {
-                resCh.AddRange(DI.FindAll(delegate (IOChannel ch)
-                {
-                    return ch.komment == komment;
-                }));
-            }
-
-            if (resCh.Count > 0)
-            {
-                foreach (IOChannel ch in resCh)
-                {
-                    if (!ch.IsEmpty())
+                    if (!channel.IsEmpty())
                     {
-                        error = string.Format("\"{0}\" : канал {1}.\"{2}\" уже привязан к A{3}.{4} \"{5}\".",
-                            name, addressSpace, komment,
-                            100 * (ch.node + 1) + ch.module, ch.physicalKlemme, ch.komment);
+                        error = string.Format(
+                            "\"{0}\" : канал {1}.\"{2}\" уже привязан " +
+                            "к A{3}.{4} \"{5}\".",
+                            name, addressSpace, comment,
+                            100 * (channel.Node + 1) + channel.Module, 
+                            channel.PhysicalClamp, channel.Comment);
                         return false;
                     }
 
-                    ch.SetChannel(node, module, physicalKlemme, fullModule, logicalPort, moduleOffset);
-                    List<IONode> wNodes = IOManager.GetInstance().IONodes;
-
-                    if (wNodes.Count > node && wNodes[node].IOModules.Count > module - 1)
+                    channel.SetChannel(node, module, physicalKlemme, 
+                        fullModule, logicalPort, moduleOffset);
+                    
+                    List<IONode> nodes = IOManager.GetInstance().IONodes;
+                    if (nodes.Count > node && 
+                        nodes[node].IOModules.Count > module - 1)
                     {
-                        wNodes[node].IOModules[module - 1].AssignChannelToDevice(physicalKlemme, this, ch);
+                        nodes[node].IOModules[module - 1]
+                            .AssignChannelToDevice(
+                            physicalKlemme, this, channel);
                     }
-
                 }
-
                 return true;
             }
             else
             {
-                error = string.Format("\"{0}\" : нет такого канала {1}:\"{2}\".",
-                    name, addressSpace, komment);
+                error = string.Format(
+                    "\"{0}\" : нет такого канала {1}:\"{2}\".",
+                    name, addressSpace, comment);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Получить каналы устройства, которые привязывались или будут
+        /// привязываться к модулю ввода-вывода
+        /// </summary>
+        /// <param name="addressSpace">Тип адресного пространства
+        /// модуля ввода-вывода</param>
+        /// <param name="channelName">Имя канала для IO-Link</param>
+        /// <param name="comment">Комментарий канала</param>
+        /// <returns></returns>
+        private List<IOChannel> GetChannels(
+            IOModuleInfo.ADDRESS_SPACE_TYPE addressSpace, string channelName,
+            string comment)
+        {
+            var IO = new List<IOChannel>();
+
+            switch (addressSpace)
+            {
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.DO:
+                    IO.AddRange(DO);
+                    break;
+
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.DI:
+                    IO.AddRange(DI);
+                    break;
+
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.AO:
+                    IO.AddRange(AO);
+                    break;
+
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.AI:
+                    IO.AddRange(AI);
+                    break;
+
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.AOAI:
+                    IO.AddRange(AO);
+                    IO.AddRange(AI);
+                    break;
+
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.DODI:
+                    IO.AddRange(DO);
+                    IO.AddRange(DI);
+                    break;
+
+                case IOModuleInfo.ADDRESS_SPACE_TYPE.AOAIDODI:
+                    switch (channelName)
+                    {
+                        default:
+                            IO.AddRange(AO);
+                            IO.AddRange(AI);
+                            break;
+
+                        case "DO":
+                            IO.AddRange(DO);
+                            break;
+
+                        case "DI":
+                            IO.AddRange(DI);
+                            break;
+                    }
+                    break;
+            }
+
+            List<IOChannel> findedChannels = IO.FindAll(delegate (IOChannel channel)
+            {
+                return channel.Comment == comment;
+            });
+
+            return findedChannels;
         }
 
         /// <summary>
@@ -1106,7 +1103,7 @@ namespace Device
                 if (ch.IsEmpty())
                 {
                     res += string.Format("\"{0}\" : не привязанный канал DO \"{1}\".\n",
-                        name, ch.komment);
+                        name, ch.Comment);
                 }
             }
             foreach (IOChannel ch in DI)
@@ -1114,7 +1111,7 @@ namespace Device
                 if (ch.IsEmpty())
                 {
                     res += string.Format("\"{0}\" : не привязанный канал  DI \"{1}\".\n",
-                        name, ch.komment);
+                        name, ch.Comment);
                 }
             }
             foreach (IOChannel ch in AO)
@@ -1122,7 +1119,7 @@ namespace Device
                 if (ch.IsEmpty())
                 {
                     res += string.Format("\"{0}\" : не привязанный канал  AO \"{1}\".\n",
-                        name, ch.komment);
+                        name, ch.Comment);
                 }
             }
             foreach (IOChannel ch in AI)
@@ -1130,7 +1127,7 @@ namespace Device
                 if (ch.IsEmpty())
                 {
                     res += string.Format("\"{0}\" : не привязанный канал  AI \"{1}\".\n",
-                        name, ch.komment);
+                        name, ch.Comment);
                 }
             }
 
@@ -1232,7 +1229,8 @@ namespace Device
                 res += prefix + "\t},\n";
             }
 
-            if (DO.Count > 0)
+            int bindedDO = CountOfBindedChannels(DO);
+            if (DO.Count > 0 && bindedDO > 0)
             {
                 res += prefix + "DO =\n";
                 res += prefix + "\t{\n";
@@ -1243,7 +1241,8 @@ namespace Device
                 res += prefix + "\t},\n";
             }
 
-            if (DI.Count > 0)
+            int bindedDI = CountOfBindedChannels(DI);
+            if (DI.Count > 0 && bindedDI > 0)
             {
                 res += prefix + "DI =\n";
                 res += prefix + "\t{\n";
@@ -1254,7 +1253,8 @@ namespace Device
                 res += prefix + "\t},\n";
             }
 
-            if (AO.Count > 0)
+            int bindedAO = CountOfBindedChannels(AO);
+            if (AO.Count > 0 && bindedAO > 0)
             {
                 res += prefix + "AO =\n";
                 res += prefix + "\t{\n";
@@ -1265,7 +1265,8 @@ namespace Device
                 res += prefix + "\t},\n";
             }
 
-            if (AI.Count > 0)
+            int bindedAI = CountOfBindedChannels(AI);
+            if (AI.Count > 0 && bindedAI > 0)
             {
                 res += prefix + "AI =\n";
                 res += prefix + "\t{\n";
@@ -1275,7 +1276,6 @@ namespace Device
                 }
                 res += prefix + "\t},\n";
             }
-
 
             if (rtParameters.Count > 0)
             {
@@ -1340,7 +1340,7 @@ namespace Device
                     {
                         IOChannel resCh = DI.Find(delegate (IOChannel ch)
                         {
-                            return ch.komment == descr;
+                            return ch.Comment == descr;
                         });
 
                         if (resCh != null)
@@ -1362,7 +1362,7 @@ namespace Device
                     {
                         IOChannel resCh = DO.Find(delegate (IOChannel ch)
                         {
-                            return ch.komment == descr;
+                            return ch.Comment == descr;
                         });
 
                         if (resCh != null)
@@ -1418,19 +1418,41 @@ namespace Device
         }
 
         /// <summary>
+        /// Возвращает количество каналов, которые привязаны к модулю
+        /// ввода-вывода
+        /// </summary>
+        /// <param name="channels">Список каналов устройства 
+        /// (AO,AI,DO,DI)</param>
+        /// <returns></returns>
+        private int CountOfBindedChannels(List<IOChannel> channels)
+        {
+            var count = 0;
+
+            foreach (var channel in channels)
+            {
+                if (channel.IsEmpty() == false)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        /// <summary>
         /// Свойство содержащее изделие, которое используется для устройства
         /// </summary>
         public string ArticleName { get; set; } = "";
 
         #region Закрытые поля.
-        public List<IOChannel> DO; ///Каналы дискретных выходов.
-        public List<IOChannel> DI; ///Каналы дискретных входов.
-        public List<IOChannel> AO; ///Каналы аналоговых выходов.
-        public List<IOChannel> AI; ///Каналы аналоговых входов.
+        protected List<IOChannel> DO; ///Каналы дискретных выходов.
+        protected List<IOChannel> DI; ///Каналы дискретных входов.
+        protected List<IOChannel> AO; ///Каналы аналоговых выходов.
+        protected List<IOChannel> AI; ///Каналы аналоговых входов.
 
-        public Dictionary<string, object> parameters;   ///Параметры.
-        public Dictionary<string, object> rtParameters; ///Рабочие параметры.
-        public Dictionary<string, object> properties;
+        protected Dictionary<string, object> parameters;   ///Параметры.
+        protected Dictionary<string, object> rtParameters; ///Рабочие параметры.
+        protected Dictionary<string, object> properties;
 
         internal int IOLinkSizeIn = 0;
         internal int IOLinkSizeOut = 0;
@@ -1457,19 +1479,19 @@ namespace Device
 
             /// <param name="node">Номер узла.</param>
             /// <param name="module">Номер модуля.</param>
-            /// <param name="physicalKlemme">Физический номер клеммы.</param>
-            /// <param name="fullModule">Полный номер модуля (А101).</param>
-            /// <param name="logicalKlemme">Порядковый логический номер клеммы.</param>
+            /// <param name="physicalClamp">Физический номер клеммы.</param>
+            /// <param name="fullModule">Полный номер модуля (101).</param>
+            /// <param name="logicalClamp">Порядковый логический номер клеммы.</param>
             /// <param name="moduleOffset">Сдвиг модуля к которому привязан канал.</param>
-            public void SetChannel(int node, int module, int physicalKlemme, int fullModule,
-                int logicalKlemme, int moduleOffset)
+            public void SetChannel(int node, int module, int physicalClamp, int fullModule,
+                int logicalClamp, int moduleOffset)
             {
                 this.node = node;
                 this.module = module;
-                this.physicalKlemme = physicalKlemme;
+                this.physicalClamp = physicalClamp;
 
                 this.fullModule = fullModule;
-                this.logicalKlemme = logicalKlemme;
+                this.logicalClamp = logicalClamp;
                 this.moduleOffset = moduleOffset;
             }
 
@@ -1480,25 +1502,25 @@ namespace Device
             {
                 node = -1;
                 module = -1;
-                physicalKlemme = -1;
+                physicalClamp = -1;
                 fullModule = -1;
-                logicalKlemme = -1;
+                logicalClamp = -1;
                 moduleOffset = -1;
             }
 
             /// <param name="name">Имя канала (DO, DI, AO, AI).</param>
             /// <param name="node">Номер узла.</param>
             /// <param name="module">Номер модуля.</param>
-            /// <param name="klemme">Номер клеммы.</param>
-            /// <param name="komment">Комментарий к каналу.</param>
-            public IOChannel(string name, int node, int module, int klemme, string komment)
+            /// <param name="clamp">Номер клеммы.</param>
+            /// <param name="comment">Комментарий к каналу.</param>
+            public IOChannel(string name, int node, int module, int clamp, string comment)
             {
                 this.name = name;
 
                 this.node = node;
                 this.module = module;
-                this.physicalKlemme = klemme;
-                this.komment = komment;
+                this.physicalClamp = clamp;
+                this.comment = comment;
             }
 
             private int ToInt()
@@ -1520,8 +1542,11 @@ namespace Device
                     case "AIAO":
                         return 4;
 
-                    default:
+                    case "DODI":
                         return 5;
+
+                    default:
+                        return 6;
                 }
             }
 
@@ -1535,50 +1560,147 @@ namespace Device
 
                 if (IOManager.GetInstance()[node] != null &&
                     IOManager.GetInstance()[node][module - 1] != null &&
-                    physicalKlemme >= 0)
+                    physicalClamp >= 0)
                 {
                     res += prefix + "{\n";
 
-                    IOModule md =
-                        IOManager.GetInstance()[node][module - 1];
-                    int offset = -1;
-
+                    int offset;
                     switch (name)
                     {
                         case "DO":
+                            offset = CalculateDO();
+                            break;
+
                         case "AO":
-                            offset = md.OutOffset;
-                            if (physicalKlemme <= IOManager.GetInstance()[node][module - 1].Info.ChannelAddressesOut.Length)
-                            {
-                                offset += md.Info.ChannelAddressesOut[physicalKlemme];
-                            }
+                            offset = CalculateAO();
                             break;
 
                         case "DI":
+                            offset = CalculateDI();
+                            break;
+
                         case "AI":
-                            offset = md.InOffset;
-                            if (physicalKlemme <= IOManager.GetInstance()[node][module - 1].Info.ChannelAddressesIn.Length)
-                            {
-                                offset += md.Info.ChannelAddressesIn[physicalKlemme];
-                            }
+                            offset = CalculateAI();
+                            break;
+
+                        default:
+                            offset = -1;
                             break;
                     }
 
-                    if (komment != "")
+                    if (comment != "")
                     {
-                        res += prefix + "-- " + komment + "\n";
+                        res += prefix + "-- " + comment + "\n";
                     }
 
                     res += prefix + $"node          = {node},\n";
                     res += prefix + $"offset        = {offset},\n";
-                    res += prefix + $"physical_port = {physicalKlemme},\n";
-                    res += prefix + $"logical_port  = {logicalKlemme},\n";
+                    res += prefix + $"physical_port = {physicalClamp},\n";
+                    res += prefix + $"logical_port  = {logicalClamp},\n";
                     res += prefix + $"module_offset = {moduleOffset}\n";
 
                     res += prefix + "},\n";
                 }
 
                 return res;
+            }
+
+            /// <summary>
+            /// Расчет AI адреса для сохранения в файл
+            /// </summary>
+            /// <returns>Адрес</returns>
+            private int CalculateAI() 
+            {
+                int offset = -1;
+
+                if (physicalClamp <= IOManager.GetInstance()[node][module - 1]
+                    .Info.ChannelAddressesIn.Length)
+                {
+                    IOModule md = IOManager.GetInstance()[node][module - 1];
+                    offset = md.InOffset;
+                    offset += md.Info.ChannelAddressesIn[physicalClamp];
+
+                    return offset;
+                }
+
+                return offset;
+            }
+
+            /// <summary>
+            /// Расчет AO адреса для сохранения в файл
+            /// </summary>
+            /// <returns>Адрес</returns>
+            private int CalculateAO() 
+            {
+                int offset = -1;
+
+                if (physicalClamp <= IOManager.GetInstance()[node][module - 1]
+                    .Info.ChannelAddressesOut.Length)
+                {
+                    IOModule md = IOManager.GetInstance()[node][module - 1];
+                    offset = md.OutOffset;
+                    offset += md.Info.ChannelAddressesOut[physicalClamp];
+                    
+                    return offset;
+                }
+
+                return offset;
+            }
+
+            /// <summary>
+            /// Расчет DI адреса для сохранения в файл
+            /// </summary>
+            /// <returns>Адрес</returns>
+            private int CalculateDI() 
+            {
+                int offset = -1;
+
+                if (physicalClamp <= IOManager.GetInstance()[node][module - 1]
+                    .Info.ChannelAddressesIn.Length)
+                {
+                    IOModule md = IOManager.GetInstance()[node][module - 1];
+                    if (md.isIOLink() == true)
+                    {
+                        offset = 0;
+                    }
+                    else
+                    {
+                        offset = md.InOffset;
+                    }
+                    offset += md.Info.ChannelAddressesIn[physicalClamp];
+
+                    return offset;
+                }
+
+                return offset;
+            }
+
+            /// <summary>
+            /// Расчет DO адреса для сохранения в файл
+            /// </summary>
+            /// <returns>Адрес</returns>
+            private int CalculateDO() 
+            {
+                int offset = -1;
+
+                if (physicalClamp <= IOManager.GetInstance()[node][module - 1]
+                    .Info.ChannelAddressesOut.Length)
+                {
+                    IOModule md = IOManager.GetInstance()[node][module - 1];
+                    if (md.isIOLink() == true)
+                    {
+                        offset = 0;
+                    }
+                    else
+                    {
+                        offset = md.OutOffset;
+                    }
+                    offset += md.Info.ChannelAddressesOut[physicalClamp];
+                    
+                    return offset;
+                }
+
+                return offset;
             }
 
             public bool IsEmpty()
@@ -1589,7 +1711,7 @@ namespace Device
             /// <summary>
             /// Номер узла.
             /// </summary>
-            public int GetNode
+            public int Node
             {
                 get
                 {
@@ -1600,7 +1722,7 @@ namespace Device
             /// <summary>
             /// Номер модуля.
             /// </summary>
-            public int GetModule
+            public int Module
             {
                 get
                 {
@@ -1609,25 +1731,101 @@ namespace Device
             }
 
             /// <summary>
-            /// Номер клеммы.
+            /// Физический номер клеммы.
             /// </summary>
-            public int GetKlemme
+            public int PhysicalClamp
             {
                 get
                 {
-                    return physicalKlemme;
+                    return physicalClamp;
                 }
             }
 
+            /// <summary>
+            /// Полный номер модуля
+            /// </summary>
+            public int FullModule
+            {
+                get
+                {
+                    return fullModule;
+                }
+            }
+
+            /// <summary>
+            /// Комментарий
+            /// </summary>
+            public string Comment
+            {
+                get
+                {
+                    return comment;
+                }
+            }
+
+            /// <summary>
+            /// Имя канала (DI,DO, AI,AO)
+            /// </summary>
+            public string Name
+            {
+                get
+                {
+                    return name;
+                }
+            }
+
+            /// <summary>
+            /// Логический номер клеммы (порядковый)
+            /// </summary>
+            public int LogicalClamp
+            {
+                get
+                {
+                    return logicalClamp;
+                }
+            }
+
+            /// <summary>
+            /// Сдвиг начала модуля
+            /// </summary>
+            public int ModuleOffset
+            {
+                get
+                {
+                    return moduleOffset;
+                }
+            }
+
+            /// <summary>
+            /// Шаблон для разбора комментария к устройству.
+            /// </summary>
+            public const string ChannelCommentPattern =
+                @"(Открыть мини(?n:\s+|$))|" +
+                @"(Открыть НС(?n:\s+|$))|" +
+                @"(Открыть ВС(?n:\s+|$))|" +
+                @"(Открыть(?n:\s+|$))|" +
+                @"(Закрыть(?n:\s+|$))|" +
+                @"(Открыт(?n:\s+|$))|" +
+                @"(Закрыт(?n:\s+|$))|" +
+                @"(Объем(?n:\s+|$))|" +
+                @"(Поток(?n:\s+|$))|" +
+                @"(Пуск(?n:\s+|$))|" +
+                @"(Реверс(?n:\s+|$))|" +
+                @"(Обратная связь(?n:\s+|$))|" +
+                @"(Частота вращения(?n:\s+|$))|" +
+                @"(Авария(?n:\s+|$))|" +
+                @"(Напряжение моста\(\+Ud\)(?n:\s+|$))|" +
+                @"(Референсное напряжение\(\+Uref\)(?n:\s+|$))";
+
             #region Закрытые поля
-            public int node;            ///Номер узла.
-            public int module;          ///Номер модуля.
-            public int fullModule;      ///Полный номер модуля.
-            public int physicalKlemme;  ///Номер физический клеммы.
-            public string komment;      ///Комментарий.
-            public string name;         ///Имя канала (DO, DI, AO ,AI).
-            public int logicalKlemme;   ///Логический номер клеммы.
-            public int moduleOffset;    ///Сдвиг начала модуля.
+            private int node;            ///Номер узла.
+            private int module;          ///Номер модуля.
+            private int fullModule;      ///Полный номер модуля.
+            private int physicalClamp;   ///Физический номер клеммы.
+            private string comment;      ///Комментарий.
+            private string name;         ///Имя канала (DO, DI, AO ,AI).
+            private int logicalClamp;    ///Логический номер клеммы.
+            private int moduleOffset;    ///Сдвиг начала модуля.
             #endregion
         }
 
@@ -1641,9 +1839,9 @@ namespace Device
     /// </summary>
     public class V : IODevice
     {
-        public V(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public V(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.V;
@@ -1660,28 +1858,27 @@ namespace Device
 
             if (dSubType == DeviceSubType.NONE)
             {
-                res += string.Format("\"{0}\" - не задан тип (V_DO1, V_DO2, ...).\n",
-                    name);
+                res += string.Format(
+                    "\"{0}\" - не задан тип (V_DO1, V_DO2, ...).\n", name);
             }
-
 
             if ((dSubType == DeviceSubType.V_IOLINK_VTUG_DO1 ||
                     dSubType == DeviceSubType.V_IOLINK_VTUG_DO1_FB_OFF ||
                     dSubType == DeviceSubType.V_IOLINK_VTUG_DO1_FB_ON) &&
-                AO[0].node >= 0 && AO[0].module > 0)
+                AO[0].Node >= 0 && AO[0].Module > 0)
             {
                 // DEV_VTUG - поддержка старых проектов
                 if (
-                    IOManager.GetInstance()[AO[0].node][AO[0].module - 1].devices[AO[0].physicalKlemme][0] != null &&
-                    IOManager.GetInstance()[AO[0].node][AO[0].module - 1].devices[AO[0].physicalKlemme][0].DeviceType != DeviceType.Y &&
-                    IOManager.GetInstance()[AO[0].node][AO[0].module - 1].devices[AO[0].physicalKlemme][0].DeviceType != DeviceType.DEV_VTUG)
+                    IOManager.GetInstance()[AO[0].Node][AO[0].Module - 1].devices[AO[0].PhysicalClamp][0] != null &&
+                    IOManager.GetInstance()[AO[0].Node][AO[0].Module - 1].devices[AO[0].PhysicalClamp][0].DeviceType != DeviceType.Y &&
+                    IOManager.GetInstance()[AO[0].Node][AO[0].Module - 1].devices[AO[0].PhysicalClamp][0].DeviceType != DeviceType.DEV_VTUG)
                 {
-                    res += string.Format("\"{0}\" - первым в списке привязанных устройств должен идти пневомоостров Festo VTUG.\n",
+                    res += string.Format("\"{0}\" - первым в списке привязанных устройств должен идти пневмоостров Festo VTUG.\n",
                         name);
                 }
                 else
                 {
-                    var vtug = IOManager.GetInstance()[AO[0].node][AO[0].module - 1].devices[AO[0].physicalKlemme][0];
+                    var vtug = IOManager.GetInstance()[AO[0].Node][AO[0].Module - 1].devices[AO[0].PhysicalClamp][0];
                     switch (vtug.DeviceSubType)
                     {
                         case DeviceSubType.DEV_VTUG_8:
@@ -1697,6 +1894,11 @@ namespace Device
                             break;
                     }
                 }
+            }
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
             }
 
             return res;
@@ -1848,13 +2050,13 @@ namespace Device
                     break;
 
                 case "":
-                    errStr = string.Format("\"{0}\" - не задан тип (V_DO1, V_DO2, ...).\n",
-                        Name);
+                    errStr = string.Format(
+                        "\"{0}\" - не задан тип (V_DO1, V_DO2, ...).\n", name);
                     break;
 
                 default:
-                    errStr = string.Format("\"{0}\" - неверный тип (V_DO1, V_DO2, ...).\n",
-                        Name);
+                    errStr = string.Format(
+                        "\"{0}\" - неверный тип (V_DO1, V_DO2, ...).\n", name);
                     break;
             }
 
@@ -1868,9 +2070,9 @@ namespace Device
     /// </summary>
     public class VC : IODevice
     {
-        public VC(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public VC(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.VC;
@@ -1879,11 +2081,16 @@ namespace Device
             AO.Add(new IOChannel("AO", -1, -1, -1, ""));
         }
 
-        public override string SetSubType(string subType)
+        public override string Check()
         {
-            dSubType = DeviceSubType.NONE;
+            string res = base.Check();
 
-            return "";
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -1893,15 +2100,27 @@ namespace Device
     /// </summary>
     public class HA : IODevice
     {
-        public HA(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public HA(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.HA;
             ArticleName = articleName;
 
             DO.Add(new IOChannel("DO", -1, -1, -1, ""));
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
 
@@ -1912,15 +2131,27 @@ namespace Device
     /// </summary>
     public class HL : IODevice
     {
-        public HL(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public HL(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.HL;
             ArticleName = articleName;
 
             DO.Add(new IOChannel("DO", -1, -1, -1, ""));
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -1930,15 +2161,27 @@ namespace Device
     /// </summary>
     public class SB : IODevice
     {
-        public SB(string fullName, string description,
-                                int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public SB(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.SB;
             ArticleName = articleName;
 
             DI.Add(new IOChannel("DI", -1, -1, -1, ""));
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -1948,15 +2191,16 @@ namespace Device
     /// </summary>
     public class DI : IODevice
     {
-        public DI(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public DI(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber) : base(fullName, description, 
+                deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.DI;
 
             parameters.Add("P_DT", null);
         }
+
         public override string SetSubType(string subtype)
         {
             base.SetSubType(subtype);
@@ -1967,6 +2211,7 @@ namespace Device
                 case "DI_VIRT":
                     dSubType = DeviceSubType.DI_VIRT;
                     break;
+
                 case "DI":
                 case "":
                     dSubType = DeviceSubType.NONE;
@@ -1990,13 +2235,14 @@ namespace Device
     /// </summary>
     public class DO : IODevice
     {
-        public DO(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public DO(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber) : base(fullName, description, 
+                deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.DO;
         }
+
         public override string SetSubType(string subtype)
         {
             base.SetSubType(subtype);
@@ -2007,11 +2253,11 @@ namespace Device
                 case "DO_VIRT":
                     dSubType = DeviceSubType.DO_VIRT;
                     break;
+
                 case "DO":
                 case "":
                     dSubType = DeviceSubType.NONE;
                     DO.Add(new IOChannel("DO", -1, -1, -1, ""));
-
                     break;
 
                 default:
@@ -2035,9 +2281,9 @@ namespace Device
     /// </summary>
     public class AI : IODevice
     {
-        public AI(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public AI(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber) : base(fullName, description, 
+                deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.AI;
@@ -2053,6 +2299,7 @@ namespace Device
                 case "AI_VIRT":
                     dSubType = DeviceSubType.AI_VIRT;
                     break;
+
                 case "AI":
                 case "":
                     dSubType = DeviceSubType.NONE;
@@ -2062,8 +2309,8 @@ namespace Device
                     parameters.Add("P_MAX_V", null);
 
                     AI.Add(new IOChannel("AI", -1, -1, -1, ""));
-
                     break;
+
                 default:
                     errStr = string.Format("\"{0}\" - неверный тип" +
                         " (AI, AI_VIRT).\n",
@@ -2077,9 +2324,11 @@ namespace Device
         public override string GetRange()
         {
             string range = "";
-            if (parameters.ContainsKey("P_MIN_V") && parameters.ContainsKey("P_MAX_V"))
+            if (parameters.ContainsKey("P_MIN_V") && 
+                parameters.ContainsKey("P_MAX_V"))
             {
-                range = "_" + parameters["P_MIN_V"].ToString() + ".." + parameters["P_MAX_V"].ToString();
+                range = "_" + parameters["P_MIN_V"].ToString() + ".." + 
+                    parameters["P_MAX_V"].ToString();
             }
             return range;
         }
@@ -2094,9 +2343,9 @@ namespace Device
     /// </summary>
     public class AO : IODevice
     {
-        public AO(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public AO(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber) : base(fullName, description, 
+                deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.AO;
@@ -2112,6 +2361,7 @@ namespace Device
                 case "AO_VIRT":
                     dSubType = DeviceSubType.AO_VIRT;
                     break;
+
                 case "AO":
                 case "":
                     dSubType = DeviceSubType.NONE;
@@ -2120,8 +2370,8 @@ namespace Device
                     parameters.Add("P_MAX_V", null);
 
                     AO.Add(new IOChannel("AO", -1, -1, -1, ""));
-
                     break;
+
                 default:
                     errStr = string.Format("\"{0}\" - неверный тип" +
                         " (AO, AO_VIRT).\n",
@@ -2135,9 +2385,11 @@ namespace Device
         public override string GetRange()
         {
             string range = "";
-            if (parameters.ContainsKey("P_MIN_V") && parameters.ContainsKey("P_MAX_V"))
+            if (parameters.ContainsKey("P_MIN_V") && 
+                parameters.ContainsKey("P_MAX_V"))
             {
-                range = "_" + parameters["P_MIN_V"].ToString() + ".." + parameters["P_MAX_V"].ToString();
+                range = "_" + parameters["P_MIN_V"].ToString() + ".." + 
+                    parameters["P_MAX_V"].ToString();
             }
             return range;
         }
@@ -2152,9 +2404,9 @@ namespace Device
     /// </summary>
     public class FS : IODevice
     {
-        public FS(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public FS(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.FS;
@@ -2163,6 +2415,18 @@ namespace Device
             DI.Add(new IOChannel("DI", -1, -1, -1, ""));
 
             parameters.Add("P_DT", null);
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -2176,9 +2440,9 @@ namespace Device
     /// </summary>
     public class QT : IODevice
     {
-        public QT(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public QT(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.QT;
@@ -2231,9 +2495,11 @@ namespace Device
         public override string GetRange()
         {
             string range = "";
-            if (parameters.ContainsKey("P_MIN_V") && parameters.ContainsKey("P_MAX_V"))
+            if (parameters.ContainsKey("P_MIN_V") && 
+                parameters.ContainsKey("P_MAX_V"))
             {
-                range = "_" + parameters["P_MIN_V"].ToString() + ".." + parameters["P_MAX_V"].ToString();
+                range = "_" + parameters["P_MIN_V"].ToString() + ".." + 
+                    parameters["P_MAX_V"].ToString();
             }
             return range;
         }
@@ -2250,10 +2516,16 @@ namespace Device
             {
                 if (parameters.Count < 2)
                 {
-                    res += string.Format("{0} - не указан диапазон измерений\n",
-                            name);
+                    res += string.Format(
+                        "{0} - не указан диапазон измерений\n", name);
                 }
             }
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
             return res;
         }
     }
@@ -2266,9 +2538,9 @@ namespace Device
     /// </summary>
     public class GS : IODevice
     {
-        public GS(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public GS(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.GS;
@@ -2277,6 +2549,18 @@ namespace Device
             DI.Add(new IOChannel("DI", -1, -1, -1, ""));
 
             parameters.Add("P_DT", null);
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -2290,19 +2574,15 @@ namespace Device
     /// </summary>
     public class PT : IODevice
     {
-        public PT(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public PT(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.PT;
             ArticleName = articleName;
 
             AI.Add(new IOChannel("AI", -1, -1, -1, ""));
-
-            parameters.Add("P_C0", null);
-            parameters.Add("P_MIN_V", null);
-            parameters.Add("P_MAX_V", null);
         }
 
         public override string SetSubType(string subType)
@@ -2313,20 +2593,30 @@ namespace Device
             switch (subType)
             {
                 case "PT":
+                    parameters.Add("P_C0", null);
+                    parameters.Add("P_MIN_V", null);
+                    parameters.Add("P_MAX_V", null);
                     break;
 
                 case "PT_IOLINK":
+                    parameters.Add("P_C0", null);
+                    parameters.Add("P_MIN_V", null);
+                    parameters.Add("P_MAX_V", null);
+                    IOLinkSizeIn = 1;
+                    break;
+
+                case "DEV_SPAE":
                     IOLinkSizeIn = 1;
                     break;
 
                 case "":
                     errStr = string.Format("\"{0}\" - не задан тип" +
-                        " (PT, PT_IOLINK).\n", Name);
+                        " (PT, PT_IOLINK, DEV_SPAE).\n", Name);
                     break;
 
                 default:
                     errStr = string.Format("\"{0}\" - неверный тип" +
-                        " (PT, PT_IOLINK).\n", Name);
+                        " (PT, PT_IOLINK, DEV_SPAE).\n", Name);
                     break;
             }
             return errStr;
@@ -2335,11 +2625,25 @@ namespace Device
         public override string GetRange()
         {
             string range = "";
-            if (parameters.ContainsKey("P_MIN_V") && parameters.ContainsKey("P_MAX_V"))
+            if (parameters.ContainsKey("P_MIN_V") && 
+                parameters.ContainsKey("P_MAX_V"))
             {
-                range = "_" + parameters["P_MIN_V"].ToString() + ".." + parameters["P_MAX_V"].ToString();
+                range = "_" + parameters["P_MIN_V"].ToString() + ".." + 
+                    parameters["P_MAX_V"].ToString();
             }
             return range;
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -2351,15 +2655,13 @@ namespace Device
     /// </summary>
     public class LT : IODevice
     {
-        public LT(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public LT(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.LT;
             ArticleName = articleName;
-
-            AI.Add(new IOChannel("AI", -1, -1, -1, ""));
         }
 
         public override string SetSubType(string subtype)
@@ -2370,16 +2672,22 @@ namespace Device
             switch (subtype)
             {
                 case "LT":
+                    AI.Add(new IOChannel("AI", -1, -1, -1, ""));
+
                     parameters.Add("P_C0", null);
                     break;
 
                 case "LT_CYL":
+                    AI.Add(new IOChannel("AI", -1, -1, -1, ""));
+
                     parameters.Add("P_C0", null);
                     parameters.Add("P_MAX_P", null);
                     parameters.Add("P_R", null);
                     break;
 
                 case "LT_CONE":
+                    AI.Add(new IOChannel("AI", -1, -1, -1, ""));
+
                     parameters.Add("P_C0", null);
                     parameters.Add("P_MAX_P", null);
                     parameters.Add("P_R", null);
@@ -2387,6 +2695,8 @@ namespace Device
                     break;
 
                 case "LT_TRUNC":
+                    AI.Add(new IOChannel("AI", -1, -1, -1, ""));
+
                     parameters.Add("P_C0", null);
                     parameters.Add("P_MAX_P", null);
                     parameters.Add("P_R", null);
@@ -2394,23 +2704,40 @@ namespace Device
                     break;
 
                 case "LT_IOLINK":
+                    AI.Add(new IOChannel("AI", -1, -1, -1, ""));
                     IOLinkSizeIn = 1;
                     break;
 
+                case "LT_VIRT":
+                    dSubType = DeviceSubType.LT_VIRT;
+                    break;
+
                 case "":
-                    errStr = string.Format("\"{0}\" - не задан тип" +
-                        " (LT, LT_CYL, LT_CONE, LT_TRUNC, LT_IOLINK).\n",
+                    errStr = string.Format("\"{0}\" - не задан тип (LT, " +
+                        "LT_CYL, LT_CONE, LT_TRUNC, LT_IOLINK, LT_VIRT).\n",
                         Name);
                     break;
 
                 default:
-                    errStr = string.Format("\"{0}\" - неверный тип" +
-                        " (LT, LT_CYL, LT_CONE, LT_TRUNC, LT_IOLINK).\n",
+                    errStr = string.Format("\"{0}\" - неверный тип (LT, " +
+                        "LT_CYL, LT_CONE, LT_TRUNC, LT_IOLINK, LT_VIRT).\n",
                         Name);
                     break;
             }
 
             return errStr;
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "" && dSubType != DeviceSubType.LT_VIRT)
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -2423,9 +2750,9 @@ namespace Device
     /// </summary>
     public class TE : IODevice
     {
-        public TE(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public TE(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.TE;
@@ -2443,7 +2770,7 @@ namespace Device
             {
                 case "TE":
                     parameters.Add("P_C0", null);
-                    parameters.Add("P_ERR", -1000);
+                    parameters.Add("P_ERR", null);
                     break;
 
                 case "TE_IOLINK":
@@ -2462,6 +2789,18 @@ namespace Device
             }
             return errStr;
         }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
+        }
     }
     //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
@@ -2472,12 +2811,13 @@ namespace Device
     /// </summary>
     public class M : IODevice
     {
-        public M(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public M(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.M;
+            ArticleName = articleName;
 
             DO.Add(new IOChannel("DO", -1, -1, -1, "Пуск"));
 
@@ -2551,19 +2891,31 @@ namespace Device
                 case "":
                     errStr = string.Format("\"{0}\" - не задан тип" +
                         " (M, M_FREQ, M_REV, M_REV_FREQ, M_REV_2," +
-                        " M_REV_FREQ_2, M_REV_2_ERROR, M_REV_FREQ_2_ERROR, M_ATV).\n",
-                        Name);
+                        " M_REV_FREQ_2, M_REV_2_ERROR, M_REV_FREQ_2_ERROR, " +
+                        "M_ATV).\n", Name);
                     break;
 
                 default:
                     errStr = string.Format("\"{0}\" - неверный тип" +
                         " (M, M_FREQ, M_REV, M_REV_FREQ, M_REV_2," +
-                        " M_REV_FREQ_2, M_REV_2_ERROR, M_REV_FREQ_2_ERROR, M_ATV).\n",
-                        Name);
+                        " M_REV_FREQ_2, M_REV_2_ERROR, M_REV_FREQ_2_ERROR, " +
+                        "M_ATV).\n", Name);
                     break;
             }
 
             return errStr;
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -2577,9 +2929,9 @@ namespace Device
     /// </summary>
     public class FQT : IODevice
     {
-        public FQT(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public FQT(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.FQT;
@@ -2646,11 +2998,25 @@ namespace Device
         public override string GetRange()
         {
             string range = "";
-            if (parameters.ContainsKey("P_MIN_F") && parameters.ContainsKey("P_MAX_F"))
+            if (parameters.ContainsKey("P_MIN_F") && 
+                parameters.ContainsKey("P_MAX_F"))
             {
-                range = "_" + parameters["P_MIN_F"].ToString() + ".." + parameters["P_MAX_F"].ToString();
+                range = "_" + parameters["P_MIN_F"].ToString() + ".." + 
+                    parameters["P_MAX_F"].ToString();
             }
             return range;
+        }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "" && dSubType != DeviceSubType.FQT_VIRT)
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
         }
     }
     //-------------------------------------------------------------------------
@@ -2662,15 +3028,13 @@ namespace Device
     /// </summary>
     public class LS : IODevice
     {
-        public LS(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public LS(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.LS;
             ArticleName = articleName;
-
-            parameters.Add("P_DT", null);
         }
 
         public override string SetSubType(string subtype)
@@ -2681,30 +3045,44 @@ namespace Device
             switch (subtype)
             {
                 case "LS_MIN":
+                    parameters.Add("P_DT", null);
+
                     DI.Add(new IOChannel("DI", -1, -1, -1, ""));
                     break;
 
                 case "LS_MAX":
+                    parameters.Add("P_DT", null);
+
                     DI.Add(new IOChannel("DI", -1, -1, -1, ""));
                     break;
 
                 case "LS_IOLINK_MIN":
+                    parameters.Add("P_DT", null);
+
                     AI.Add(new IOChannel("AI", -1, -1, -1, ""));
                     IOLinkSizeIn = 1;
                     break;
 
                 case "LS_IOLINK_MAX":
+                    parameters.Add("P_DT", null);
+
                     AI.Add(new IOChannel("AI", -1, -1, -1, ""));
                     IOLinkSizeIn = 1;
                     break;
 
+                case "LS_VIRT":
+                    dSubType = DeviceSubType.LS_VIRT;
+                    break;
+
                 case "":
-                    errStr = string.Format("\"{0}\" - не задан тип (LS_MIN, LS_MAX, LS_IOLINK_MIN, LS_IOLINK_MAX).\n",
+                    errStr = string.Format("\"{0}\" - не задан тип (LS_MIN, " +
+                        "LS_MAX, LS_IOLINK_MIN, LS_IOLINK_MAX, LS_VIRT).\n",
                         Name);
                     break;
 
                 default:
-                    errStr = string.Format("\"{0}\" - неверный тип (LS_MIN, LS_MAX, LS_IOLINK_MIN, LS_IOLINK_MAX).\n",
+                    errStr = string.Format("\"{0}\" - неверный тип (LS_MIN, " +
+                        "LS_MAX, LS_IOLINK_MIN, LS_IOLINK_MAX, LS_VIRT).\n",
                         Name);
                     break;
             }
@@ -2734,6 +3112,18 @@ namespace Device
             }
             return connectionType;
         }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "" && dSubType != DeviceSubType.LS_VIRT)
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
+        }
     }
     //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
@@ -2746,9 +3136,9 @@ namespace Device
     /// </summary>
     public class WT : IODevice
     {
-        public WT(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public WT(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.WT;
@@ -2762,6 +3152,18 @@ namespace Device
             parameters.Add("P_C0", null);
             parameters.Add("P_DT", null);
         }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
+        }
     }
     //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
@@ -2771,10 +3173,9 @@ namespace Device
 
     public class Y : IODevice
     {
-
-        public Y(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber, string articleName)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public Y(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.Y;
@@ -2803,20 +3204,31 @@ namespace Device
                     break;
 
                 case "":
-                    errStr = string.Format("\"{0}\" - не задан тип (DEV_VTUG_8, ...).\n",
-                        Name);
+                    errStr = string.Format("\"{0}\" - не задан тип " +
+                        "(DEV_VTUG_8, ...).\n", Name);
                     break;
 
                 default:
-                    errStr = string.Format("\"{0}\" - неверный тип (DEV_VTUG_8, ...).\n",
-                        Name);
+                    errStr = string.Format("\"{0}\" - неверный тип " +
+                        "(DEV_VTUG_8, ...).\n", Name);
                     break;
             }
 
             return errStr;
         }
-    }
 
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
+        }
+    }
 
     //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
@@ -2826,12 +3238,13 @@ namespace Device
     /// </summary>
     public class DEV_VTUG : IODevice
     {
-        public DEV_VTUG(string fullName, string description,
-                    int deviceNumber, string objectName, int objectNumber)
-            : base(fullName, description, deviceNumber, objectName, objectNumber)
+        public DEV_VTUG(string fullName, string description, int deviceNumber, 
+            string objectName, int objectNumber, string articleName) : base(
+                fullName, description, deviceNumber, objectName, objectNumber)
         {
             dSubType = DeviceSubType.NONE;
             dType = DeviceType.DEV_VTUG;
+            ArticleName = articleName;
 
             AO.Add(new IOChannel("AO", -1, -1, -1, ""));
         }
@@ -2856,57 +3269,32 @@ namespace Device
                     break;
 
                 case "":
-                    errStr = string.Format("\"{0}\" - не задан тип (DEV_VTUG_8, ...).\n",
-                        Name);
+                    errStr = string.Format("\"{0}\" - не задан тип " +
+                        "(DEV_VTUG_8, ...).\n", Name);
                     break;
 
                 default:
-                    errStr = string.Format("\"{0}\" - неверный тип (DEV_VTUG_8, ...).\n",
-                        Name);
+                    errStr = string.Format("\"{0}\" - неверный тип " +
+                        "(DEV_VTUG_8, ...).\n", Name);
                     break;
             }
 
             return errStr;
         }
+
+        public override string Check()
+        {
+            string res = base.Check();
+
+            if (ArticleName == "")
+            {
+                res += $"\"{name}\" - не задано изделие.\n";
+            }
+
+            return res;
+        }
     }
-    //-------------------------------------------------------------------------
-    //-------------------------------------------------------------------------
-    /// <summary>
-    /// Интерфейс менеджера описания устройств для проекта.
-    /// </summary>
-    public interface IDeviceManager
-    {
-        /// <summary>
-        /// Получение описания привязки модулей ввода\вывода.
-        /// </summary>
-        void ReadConfigurationFromIOModules();
 
-        /// <summary>
-        /// Проверка конфигурации устройств проекта.
-        /// </summary>
-        void CheckConfiguration(bool useLog = false);
-
-        /// <summary>
-        /// Получение описания устройств проекта и синхронизация с уже
-        /// имеющимся описанием.
-        /// </summary>
-        void SynchAndReadConfigurationFromScheme();
-
-        /// <summary>
-        /// Сохранение в виде таблицы Lua.
-        /// </summary>
-        /// <param name="prefix">Префикс (для выравнивания).</param>
-        /// <returns>Описание в виде таблицы Lua.</returns>
-        string SaveAsLuaTable(string prefix);
-
-        /// <summary>
-        /// Сохранение устройств в виде скрипта Lua. Для последующего доступа
-        /// по имени. Строки в виде: "S1V23 = V( 123 ) ".
-        /// </summary>
-        string SaveDevicesAsLuaScript();
-
-        void GetObjectForXML(TreeNode rootNode);
-    }
     //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
     /// <summary>
@@ -3037,12 +3425,12 @@ namespace Device
                     string chNodeName = "";
                     if (!ch.IsEmpty())
                     {
-                        chNodeName = ch.name + " " + ch.komment +
-                            $" (A{ch.fullModule}:" + ch.physicalKlemme + ")";
+                        chNodeName = ch.Name + " " + ch.Comment +
+                            $" (A{ch.FullModule}:" + ch.PhysicalClamp + ")";
                     }
                     else
                     {
-                        chNodeName = ch.name + " " + ch.komment;
+                        chNodeName = ch.Name + " " + ch.Comment;
                     }
                     devNode.Nodes.Add(chNodeName);
                 }
@@ -3119,35 +3507,18 @@ namespace Device
         }
 
         /// <summary>
-        /// Проверка устройств на каналы без привязки и
-        /// расчет IOLink адресов
+        /// Проверка устройств на каналы без привязки
         /// </summary>
-        public string CheckDevicesConnection()
+        public string Check()
         {
-            string res = "";
+            var res = "";
 
-            foreach (IODevice dev in devices)
+            foreach (var dev in devices)
             {
                 res += dev.Check();
             }
 
-            CalculateIOLinkAddresses();
-
             return res;
-        }
-
-        /// <summary>
-        /// Расчет IOLink адресов модулей
-        /// </summary>
-        private void CalculateIOLinkAddresses()
-        {
-            foreach (IONode wn in IOManager.GetInstance().IONodes)
-            {
-                foreach (IOModule wm in wn.IOModules)
-                {
-                    wm.CalculateIOlinkAdress();
-                }
-            }
         }
 
         /// <summary>
@@ -3384,9 +3755,9 @@ namespace Device
                 out objectNumber, out deviceType, out deviceNumber);
 
             // Если изделия нет или пустое, то оставляем пустое
-            if (articleName == string.Empty || articleName == null)
+            if (articleName == "" || articleName == null)
             {
-                articleName = string.Empty;
+                articleName = "";
             }
 
             switch (deviceType)
@@ -3404,7 +3775,7 @@ namespace Device
                 case "M":
                 case "N":
                     dev = new M(name, description, deviceNumber, objectName,
-                        objectNumber);
+                        objectNumber, articleName);
                     break;
 
                 case "LS":
@@ -3495,7 +3866,7 @@ namespace Device
                     break;
                 case "DEV_VTUG": // Совместимость со старыми проектами
                     dev = new DEV_VTUG(name, description, deviceNumber, objectName,
-                        objectNumber);
+                        objectNumber, articleName);
                     break;
 
                 default:
@@ -3633,16 +4004,19 @@ namespace Device
         /// <param name="addressSpace">Адресное пространство.</param>
         /// <param name="node">Узел.</param>
         /// <param name="module">Модуль.</param>
-        /// <param name="klemme">Клемма.</param>
-        /// <param name="komment">Описание канала.</param>
-        /// <param name="errStr">Строка с описанием ошибки при наличии таковой.</param>
+        /// <param name="physicalKlemme">Клемма.</param>
+        /// <param name="comment">Описание канала.</param>
+        /// <param name="errors">Строка с описанием ошибки при наличии таковой.</param>
+        /// <param name="fullModule">Полный номер модуля</param>
+        /// <param name="logicalClamp">Логический порядковый номер клеммы</param>
+        /// <param name="moduleOffset">Начальный сдвиг модуля</param>
         public void AddDeviceChannel(IODevice dev,
             IO.IOModuleInfo.ADDRESS_SPACE_TYPE addressSpace,
-            int node, int module, int physicalKlemme, string komment,
-            out string errStr, int fullModule, int logicalKlemme, int moduleOffset)
+            int node, int module, int physicalKlemme, string comment,
+            out string errors, int fullModule, int logicalClamp, int moduleOffset, string channelName)
         {
             dev.SetChannel(addressSpace, node, module, physicalKlemme,
-                komment, out errStr, fullModule, logicalKlemme, moduleOffset);
+                comment, out errors, fullModule, logicalClamp, moduleOffset, channelName);
         }
 
         /// <summary>
@@ -3771,10 +4145,10 @@ namespace Device
         /// </summary>
         /// <param name="devices">Список ОУ устройств через разделитель</param>
         /// <returns></returns>
-        public bool? IsASInterface(string devices, out string errors)
+        public bool? IsASInterfaceDevices(string devices, out string errors)
         {
             bool? isASInterface = false;
-            errors = string.Empty;
+            errors = "";
             const int MinimalDevicesCount = 2;
             var deviceMatches = Regex.Matches(devices, DeviceNamePattern);
 
@@ -3786,8 +4160,7 @@ namespace Device
             var checkingList = new List<bool>();
             foreach (Match deviceMatch in deviceMatches)
             {
-                IODevice device = DeviceManager.GetInstance().
-                    GetDevice(deviceMatch.Value);
+                var device = GetDevice(deviceMatch.Value);
                 if (device.DeviceSubType == DeviceSubType.V_AS_MIXPROOF ||
                     device.DeviceSubType == DeviceSubType.V_AS_DO1_DI2)
                 {
@@ -3831,12 +4204,11 @@ namespace Device
         {
             var deviceMatches = Regex.Matches(devices, DeviceNamePattern);
 
-            errors = string.Empty;
-            var errorsBuffer = string.Empty;
+            errors = "";
+            var errorsBuffer = "";
             foreach (Match deviceMatch in deviceMatches)
             {
-                IODevice device = DeviceManager.GetInstance().
-                    GetDevice(deviceMatch.Value);
+                var device = GetDevice(deviceMatch.Value);
                 string parameter = device.GetRuntimeParameter("R_AS_NUMBER");
                 if (parameter == null)
                 {
@@ -3863,7 +4235,7 @@ namespace Device
             }
 
             var isValid = false;
-            if (errorsBuffer != string.Empty)
+            if (errorsBuffer != "")
             {
                 isValid = false;
                 errors += errorsBuffer;
@@ -3876,7 +4248,39 @@ namespace Device
             return isValid;
         }
 
-        const string DeviceNamePattern = "(\\+[A-Z0-9_]*-[A-Z0-9_]+)"; // ОУ.
+        /// <summary>
+        /// Является ли привязка множественной
+        /// </summary>
+        /// <param name="devices">Список устройств</param>
+        /// <returns></returns>
+        public bool IsMultipleBinding(string devices)
+        {
+            var isMultiple = false;
+
+            var matches = Regex.Matches(devices, DeviceNamePattern);
+
+            if (matches.Count > 1)
+            {
+                isMultiple = true;
+            }
+
+            return isMultiple;
+        }
+
+        /// <summary>
+        /// Шаблон для получение ОУ устройства.
+        /// </summary>
+        public const string DeviceNamePattern = "(\\+[A-Z0-9_]*-[A-Z0-9_]+)";
+
+        /// <summary>
+        /// Используемое имя для пневмоострова.
+        /// </summary>
+        public const string ValveTerminalName = "-Y";
+
+        /// <summary>
+        /// Шаблон для разбора ОУ пневмоострова
+        /// </summary>
+        public const string valveTerminalPattern = @"([A-Z0-9]+\-[Y0-9]+)";
 
         private static IODevice cap = new IODevice("Заглушка", "", 0, "", 0);
         private List<IODevice> devices;       ///Устройства проекта.     

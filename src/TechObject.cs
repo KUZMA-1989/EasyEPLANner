@@ -2446,13 +2446,18 @@ namespace TechObject
         /// <summary>
         /// Проверка шагов состояния
         /// </summary>
-        public void Check()
+        /// <returns>Строка с ошибками</returns>
+        public string Check()
         {
+            var errors = string.Empty;
             List<Step> steps = Steps;
+
             foreach (Step step in steps)
             {
-                step.Check();
+                errors += step.Check();
             }
+
+            return errors;
         }
 
         #region Реализация ITreeViewItem
@@ -3050,14 +3055,20 @@ namespace TechObject
         /// <summary>
         /// Проверка состояний состоящих из шагов
         /// </summary>
-        public void Check()
+        /// <returns>Строка с ошибками</returns>
+        public string Check()
         {
+            var errors = string.Empty;
             List<State> stepsManager = stepsMngr;
+
             foreach (State state in stepsManager)
             {
-                state.Check();
+                errors += state.Check();
             }
+
+            return errors;
         }
+
         #region Реализация ITreeViewItem
         override public string[] DisplayText
         {
@@ -3405,7 +3416,10 @@ namespace TechObject
         // Возврат параметров базовой операции
         public BaseOperationProperty[] BaseOperationProperties
         {
-            get { return baseOperationProperties; }
+            get 
+            {
+                return baseOperationProperties; 
+            }
         }
 
         #region Реализация ITreeViewItem
@@ -3547,7 +3561,7 @@ namespace TechObject
             if (isMode)
             {
                 actions.Add(new Action("Сигналы для включения", this, "required_FB",
-                    new Device.DeviceType[1] { Device.DeviceType.DI }));
+                    new Device.DeviceType[2] { Device.DeviceType.DI, Device.DeviceType.GS }));
                 actions.Add(new ActionWash("Мойка( DI, DO, устройства)", this, "wash_data"));
                 actions.Add(new Action_DI_DO("Группы DI -> DO DO ...", this, "DI_DO"));
                 actions.Add(new Action_AI_AO("Группы AI -> AO AO ...", this, "AI_AO"));
@@ -3760,7 +3774,6 @@ namespace TechObject
         }
 
         #region Реализация ITreeViewItem
-
         override public string[] DisplayText
         {
             get
@@ -3883,12 +3896,15 @@ namespace TechObject
 
             return devToDraw;
         }
+        #endregion
 
         /// <summary>
         /// Проверка действий в шаге
         /// </summary>
-        public void Check()
+        /// <returns>Строка с ошибками</returns>
+        public string Check()
         {
+            var errors = string.Empty;
             List<int> devicesInAction = new List<int>();
             foreach (Action a in actions)
             {
@@ -3913,10 +3929,11 @@ namespace TechObject
                 string msg = $"Неправильно заданы устройства в шаге " +
                     $"\"{GetStepName()}\", операции \"{mode.Name}\"," +
                     $"технологического объекта \"{techObject.DisplayText[0]}\"";
-                EasyEPlanner.ProjectManager.GetInstance().AddLogMessage(msg);
+                errors += msg;
             }
+
+            return errors;
         }
-        #endregion
 
         private bool IsMode ///< Признак шага операции.
         {
@@ -3980,18 +3997,20 @@ namespace TechObject
             return clone;
         }
 
-        virtual public void ModifyDevNames(int newTechObjectN, int oldTechObjectN,
-            string techObjectName)
+        virtual public void ModifyDevNames(int newTechObjectN, 
+            int oldTechObjectN, string techObjectName)
         {
             List<int> tmpIndex = new List<int>();
             foreach (int index in deviceIndex)
             {
                 tmpIndex.Add(index);
             }
-            Device.DeviceManager deviceManager = Device.DeviceManager.GetInstance();
+            
+            Device.DeviceManager deviceManager = Device.DeviceManager
+                .GetInstance();
             foreach (int index in deviceIndex)
             {
-                string newDevName = "";
+                var newDevName = string.Empty;
                 Device.IODevice device = deviceManager.GetDeviceByIndex(index);
                 int objNum = device.ObjectNumber;
                 string objName = device.ObjectName;
@@ -4005,26 +4024,29 @@ namespace TechObject
                         if (objNum == newTechObjectN && oldTechObjectN != -1)
                         {
                             newDevName = objName + oldTechObjectN +
-                                device.DeviceType.ToString() + device.DeviceNumber;
+                                device.DeviceType.ToString() + device.
+                                DeviceNumber;
                         }
                         if (oldTechObjectN == -1 ||
                             oldTechObjectN == objNum)
                         {
                             //COAG1V1 --> COAG2V1
                             newDevName = objName + newTechObjectN +
-                                device.DeviceType.ToString() + device.DeviceNumber;
+                                device.DeviceType.ToString() + device
+                                .DeviceNumber;
                         }
                     }
                 }
 
-                if (newDevName != "")
+                if (newDevName != string.Empty)
                 {
+                    int indexOfDeletingElement = tmpIndex.IndexOf(index);
                     tmpIndex.Remove(index);
-                    int tmpDevInd =
-                        Device.DeviceManager.GetInstance().GetDeviceListNumber(newDevName);
+                    int tmpDevInd = Device.DeviceManager.GetInstance()
+                        .GetDeviceListNumber(newDevName);
                     if (tmpDevInd >= 0)
                     {
-                        tmpIndex.Add(tmpDevInd);
+                        tmpIndex.Insert(indexOfDeletingElement, tmpDevInd);
                     }
                 }
             }
@@ -4040,10 +4062,12 @@ namespace TechObject
             {
                 tmpIndex.Add(index);
             }
-            Device.DeviceManager deviceManager = Device.DeviceManager.GetInstance();
+
+            Device.DeviceManager deviceManager = Device.DeviceManager
+                .GetInstance();
             foreach (int index in deviceIndex)
             {
-                string newDevName = "";
+                string newDevName = string.Empty;
                 Device.IODevice device = deviceManager.GetDeviceByIndex(index);
                 int objNum = newTechObjectNumber;
                 string objName = device.ObjectName;
@@ -4055,14 +4079,15 @@ namespace TechObject
                         device.DeviceType.ToString() + device.DeviceNumber;
                 }
 
-                if (newDevName != "")
+                if (newDevName != string.Empty)
                 {
+                    int indexOfDeletingElement = tmpIndex.IndexOf(index);
                     tmpIndex.Remove(index);
-                    int tmpDevInd =
-                        Device.DeviceManager.GetInstance().GetDeviceListNumber(newDevName);
+                    int tmpDevInd = Device.DeviceManager.GetInstance()
+                        .GetDeviceListNumber(newDevName);
                     if (tmpDevInd >= 0)
                     {
-                        tmpIndex.Add(tmpDevInd);
+                        tmpIndex.Insert(indexOfDeletingElement, tmpDevInd);
                     }
                 }
             }
@@ -5296,7 +5321,6 @@ namespace TechObject
         void SetCDBXTagView(bool combineTag);
         string SaveRestrictionAsLua(string prefixStr);
         List<TechObject> GetTechObjects();      
-        void CheckConfiguration();
     }
     //-------------------------------------------------------------------------
     //-------------------------------------------------------------------------
@@ -5537,7 +5561,7 @@ namespace TechObject
 
                             res += objName + ".steps = \t\t--Шаги операций.\n";
                             res += prefix + "{\n";
-                            res += prefix + baseOperation.GetLuaName().ToUpper() + " = \n";
+                            res += prefix + baseOperation.GetLuaName().ToUpper() + " =\n";
                             res += prefix + prefix + "{\n";
                             res += prefix + prefix + "DRAINAGE = " + mode.stepsMngr[0].steps.First(x => x.GetStepName().Contains("Дренаж")).GetStepNumber() + ",\n";
                             res += prefix + prefix + "}\n";
@@ -5545,7 +5569,9 @@ namespace TechObject
 
                             foreach (BaseOperationProperty param in baseOperation.BaseOperationProperties)
                             {
-                                res += objName + "." + param.GetLuaName() + " = " + param.GetValue() + "\n";
+                                string val = param.GetValue() == "" ? "nil" : param.GetValue();
+                                res += objName + "." + param.GetLuaName() + 
+                                    " = " + val + "\n";
                             }
 
                             res += "\n"; // Отступ перед новым объектом
@@ -5602,8 +5628,10 @@ namespace TechObject
         /// Проверка технологического объекта
         /// на правильность ввода и др.
         /// </summary>
-        public virtual void CheckConfiguration()
+        /// <returns>Строка с ошибками</returns>
+        public string Check()
         {
+            var errors = string.Empty;
             List<TechObject> TObjects = GetTechObjects();
 
             foreach (TechObject obj in TObjects)
@@ -5612,12 +5640,13 @@ namespace TechObject
                 {
                     string objName = obj.EditText[0] + " " + obj.TechNumber;
                     string msg = string.Format("Не выбран базовый объект - \"{0}\"\n", objName);
-                    EasyEPlanner.ProjectManager.GetInstance().AddLogMessage(msg);
+                    errors += msg;
                 }
 
-                // Проверка операций объекта
-                obj.Check();
+                errors += obj.Check();
             }
+
+            return errors;
 
         }
 
@@ -6569,7 +6598,7 @@ namespace TechObject
         {
             modes.SetNewOwnerDevNames(newTechObjectName, this.TechNumber);
         }
-
+        
         /// <summary>
         /// Получение менеджера параметров.
         /// </summary>
@@ -6777,15 +6806,19 @@ namespace TechObject
         /// <summary>
         /// Проверка операций технологического объекта
         /// </summary>
-        public void Check()
+        /// <returns>Строка с ошибками</returns>
+        public string Check()
         {
+            var errors = string.Empty;
+
             ModesManager modesManager = GetModesManager;
             List<Mode> modes = modesManager.GetModes;
-            foreach (Mode mode in modes)
+            foreach (var mode in modes)
             {
-                mode.Check();
+                errors += mode.Check();
             }
 
+            return errors;
         }
 
         #region Реализация ITreeViewItem
@@ -7014,28 +7047,31 @@ namespace TechObject
     }
 
     // Имитационное хранилище БД
-    public static class DBImitation
+    public class DBImitation
     {
         // Базовые операции
-        private static BaseOperation[] baseOperationsList = new BaseOperation[]
+        private static BaseOperation[] baseOperationsList() 
         {
-            new BaseOperation("", ""),
-            new BaseOperation("Мойка", "WASHING_CIP"),
-            new BaseOperation("Наполнение", "luaName1"),
-            new BaseOperation("Хранение", "luaName2"),
-            new BaseOperation("Выдача", "luaName3"),
-        };
+            return new BaseOperation[]
+            {
+                new BaseOperation("", ""),
+                new BaseOperation("Мойка", "WASHING_CIP"),
+                new BaseOperation("Наполнение", "luaName1"),
+                new BaseOperation("Хранение", "luaName2"),
+                new BaseOperation("Выдача", "luaName3"),
+            };
+        } 
 
         // Возврат базовых операций
         public static BaseOperation[] GetBaseOperations()
         {
-            return baseOperationsList;
+            return baseOperationsList();
         }
 
         // Возврат базовых технологических объектов
         public static BaseTechObject[] GetBaseTechObjects()
         {
-            return baseTechObjectArr;
+            return baseTechObjectArr();
         }
 
         // Имитиация хранимой процедуры поиска ОУ по имени базового технологического объекта
@@ -7043,7 +7079,7 @@ namespace TechObject
         {
             string nameEplan = "";
 
-            foreach (BaseTechObject baseTechObject in baseTechObjectArr)
+            foreach (BaseTechObject baseTechObject in baseTechObjectArr())
             {
                 if (baseTechObject.GetName() == baseTechObjectName)
                 {
@@ -7057,7 +7093,7 @@ namespace TechObject
         // Получение тех. объекта по номеру
         public static BaseTechObject GetTObject(string name)
         {
-            foreach (BaseTechObject baseTechObject in baseTechObjectArr)
+            foreach (BaseTechObject baseTechObject in baseTechObjectArr())
             {
                 if (name == baseTechObject.GetName())
                 {
@@ -7071,14 +7107,14 @@ namespace TechObject
         public static string FindOperationLuaName(string name)
         {
             var luaName = "";
-            luaName = baseOperationsList.First(x => x.GetName().Contains(name)).GetLuaName();
+            luaName = baseOperationsList().First(x => x.GetName().Contains(name)).GetLuaName();
             return luaName;
         }
 
         // Возврат параметров базовой перации по имени из БД
         public static BaseOperationProperty[] GetOperParams(string baseOperName, string baseObjectName)
         {
-            BaseTechObject currObj = baseTechObjectArr.First(x => x.GetName().Equals(baseObjectName));
+            BaseTechObject currObj = baseTechObjectArr().First(x => x.GetName().Equals(baseObjectName));
             BaseOperation currOper = currObj.BaseOperations.First(x => x.GetName().Equals(baseOperName));
             BaseOperationProperty[] operationParams = currOper.BaseOperationProperties;
             if (operationParams == null) return new BaseOperationProperty[0];
@@ -7089,74 +7125,98 @@ namespace TechObject
 
         // ------TANK PARAMS ----------------------
         // Мойка
-        private static BaseOperationProperty[] tankWashParams = new BaseOperationProperty[]
+        private static BaseOperationProperty[] tankWashParams()
         {
-            new BaseOperationProperty("CIP_WASH_END", "Мойка завершена", ""),
-            new BaseOperationProperty("DI_CIP_FREE", "МСА свободна", "")
-        };
+            return new BaseOperationProperty[] 
+            {
+                new BaseOperationProperty("CIP_WASH_END", "Мойка завершена", ""),
+                new BaseOperationProperty("DI_CIP_FREE", "МСА свободна", "")
+            };
+        }
 
         // Наполнение
-        private static BaseOperationProperty[] tankFillParams = new BaseOperationProperty[]
+        private static  BaseOperationProperty[] tankFillParams()
         {
-            new BaseOperationProperty("Param1", "Параметр 1", ""),
-            new BaseOperationProperty("Param2", "Параметр 2", "")
-        };
-
+            return new BaseOperationProperty[]
+            {
+                new BaseOperationProperty("Param1", "Параметр 1", ""),
+                new BaseOperationProperty("Param2", "Параметр 2", "")
+            };
+        }
+             
         // Хранение
-        private static BaseOperationProperty[] tankStorageParams = new BaseOperationProperty[]
+        private static BaseOperationProperty[] tankStorageParams()
         {
-            new BaseOperationProperty("Param3", "Параметр 3", ""),
-            new BaseOperationProperty("Param4", "Параметр 4", "")
-        };
+            return new BaseOperationProperty[]
+            {
+                new BaseOperationProperty("Param3", "Параметр 3", ""),
+                new BaseOperationProperty("Param4", "Параметр 4", "")
+            };
+        }
 
         // Выдача
-        private static BaseOperationProperty[] tankDeliveryParams = new BaseOperationProperty[]
+        private static BaseOperationProperty[] tankDeliveryParams() 
         {
-            new BaseOperationProperty("Param5", "Параметр 5", ""),
-            new BaseOperationProperty("Param6", "Параметр 6", "")
-        };
+            return new BaseOperationProperty[]
+            {
+                new BaseOperationProperty("Param5", "Параметр 5", ""),
+                new BaseOperationProperty("Param6", "Параметр 6", "")
+            };
+        }
 
         //---------------------- TEST EMPTY PARAMS ------------------------
-        private static BaseOperationProperty[] emptyParams = new BaseOperationProperty[0];
+        private static BaseOperationProperty[] emptyParams() 
+        {
+            return new BaseOperationProperty[0];
+        }
 
         //---------------- Init operations ---------------------------------------------
 
         // Базовые операции
-        private static BaseOperation[] baseTankOperations = new BaseOperation[]
+        private static BaseOperation[] baseTankOperations() 
         {
-            new BaseOperation("", ""),
-            new BaseOperation("Мойка", "WASHING_CIP", tankWashParams),
-            new BaseOperation("Наполнение", "luaName1", tankFillParams),
-            new BaseOperation("Хранение", "luaName2", tankStorageParams),
-            new BaseOperation("Выдача", "luaName3", tankDeliveryParams),
-        };
+            return new BaseOperation[]
+            {
+                new BaseOperation("", ""),
+                new BaseOperation("Мойка", "WASHING_CIP", tankWashParams()),
+                new BaseOperation("Наполнение", "luaName1", tankFillParams()),
+                new BaseOperation("Хранение", "luaName2", tankStorageParams()),
+                new BaseOperation("Выдача", "luaName3", tankDeliveryParams()),
+            };
+        }
 
-        private static BaseOperation[] baseTestOperations = new BaseOperation[]
+        private static BaseOperation[] baseTestOperations() 
         {
-            new BaseOperation("", ""),
-            new BaseOperation("Мойка", "WASHING_CIP", emptyParams),
-            new BaseOperation("Наполнение", "luaName1", emptyParams),
-            new BaseOperation("Хранение", "luaName2", emptyParams),
-            new BaseOperation("Выдача", "luaName3", emptyParams),
-        };
+            return new BaseOperation[]
+            {
+                new BaseOperation("", ""),
+                new BaseOperation("Мойка", "WASHING_CIP", emptyParams()),
+                new BaseOperation("Наполнение", "luaName1", emptyParams()),
+                new BaseOperation("Хранение", "luaName2", emptyParams()),
+                new BaseOperation("Выдача", "luaName3", emptyParams()),
+            };
+        }
 
         //---------------- Init objects ---------------------------------------------
 
-        public static BaseTechObject[] baseTechObjectArr = new BaseTechObject[]
+        public static BaseTechObject[] baseTechObjectArr()
         {
-            new BaseTechObject("", "", 0, baseTestOperations),
-            new BaseTechObject("Автомат", "automat", 2, baseTestOperations),
-            new BaseTechObject("Бойлер", "boil", 2, baseTestOperations),
-            new BaseTechObject("Мастер", "master", 1, baseTestOperations),
-            new BaseTechObject("Линия", "line", 2, baseTestOperations),
-            new BaseTechObject("Линия приемки", "line_in", 2, baseTestOperations),
-            new BaseTechObject("Линия выдачи", "line_out", 2, baseTestOperations),
-            new BaseTechObject("Пастеризатор", "pasteurizator", 2, baseTestOperations),
-            new BaseTechObject("Пост", "post", 2, baseTestOperations),
-            new BaseTechObject("Танк", "tank", 1, baseTankOperations),
-            new BaseTechObject("Узел подогрева", "heater_node", 2, baseTestOperations),
-            new BaseTechObject("Узел охлаждения", "cooler_node", 2, baseTestOperations),
-            new BaseTechObject("Узел перемешивания", "mix_node", 2, baseTestOperations)
-        };
+            return new BaseTechObject[]
+            {
+                new BaseTechObject("", "", 0, baseTestOperations()),
+                new BaseTechObject("Автомат", "automat", 2, baseTestOperations()),
+                new BaseTechObject("Бойлер", "boil", 2, baseTestOperations()),
+                new BaseTechObject("Мастер", "master", 1, baseTestOperations()),
+                new BaseTechObject("Линия", "line", 2, baseTestOperations()),
+                new BaseTechObject("Линия приемки", "line_in", 2, baseTestOperations()),
+                new BaseTechObject("Линия выдачи", "line_out", 2, baseTestOperations()),
+                new BaseTechObject("Пастеризатор", "pasteurizator", 2, baseTestOperations()),
+                new BaseTechObject("Пост", "post", 2, baseTestOperations()),
+                new BaseTechObject("Танк", "tank", 1, baseTankOperations()),
+                new BaseTechObject("Узел подогрева", "heater_node", 2, baseTestOperations()),
+                new BaseTechObject("Узел охлаждения", "cooler_node", 2, baseTestOperations()),
+                new BaseTechObject("Узел перемешивания", "mix_node", 2, baseTestOperations())
+            };
+        }     
     }
 }
